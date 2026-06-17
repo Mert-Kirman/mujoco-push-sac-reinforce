@@ -5,10 +5,11 @@ import torch.nn.functional as F
 from model import VPG
 
 
-class Agent():
+class REINFORCE_Agent():
     def __init__(self, lr=1e-3, gamma=0.99):
         self.model = VPG()
-        self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
+        self.learning_rate = lr
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
         self.gamma = gamma
 
         # Buffers to store trajectory data for the episode

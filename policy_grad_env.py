@@ -5,10 +5,10 @@ import gymnasium as gym
 from gymnasium import spaces
 
 import environment
-from agent import Agent
+
 
 # Inherit from both BaseEnv and gym.Env
-class Hw3Env(environment.BaseEnv, gym.Env):
+class Policy_Grad_Env(environment.BaseEnv, gym.Env):
     def __init__(self, **kwargs) -> None:
         environment.BaseEnv.__init__(self, **kwargs)
         self._delta = 0.05
@@ -26,6 +26,7 @@ class Hw3Env(environment.BaseEnv, gym.Env):
     def _create_scene(self, seed=None):
         if seed is not None:
             np.random.seed(seed)
+        
         scene = environment.create_tabletop_scene()
         obj_pos = [np.random.uniform(0.25, 0.75),
                    np.random.uniform(-0.3, 0.3),
@@ -33,6 +34,7 @@ class Hw3Env(environment.BaseEnv, gym.Env):
         goal_pos = [np.random.uniform(0.25, 0.75),
                     np.random.uniform(-0.3, 0.3),
                     1.025]
+        
         environment.create_object(scene, "box", pos=obj_pos, quat=[0, 0, 0, 1],
                                   size=[0.03, 0.03, 0.03], rgba=[0.8, 0.2, 0.2, 1],
                                   name="obj1")
@@ -64,15 +66,30 @@ class Hw3Env(environment.BaseEnv, gym.Env):
             pixels = transforms.functional.center_crop(pixels, min(pixels.shape[1:]))
             pixels = transforms.functional.resize(pixels, (128, 128))
         return pixels / 255.0
-
-    def high_level_state(self):
+    
+    def _get_raw_state(self):
+        """Internal helper to get raw physical meters for reward calculations"""
         ee_pos = self.data.site(self._ee_site).xpos[:2]
         obj_pos = self.data.body("obj1").xpos[:2]
         goal_pos = self.data.site("goal").xpos[:2]
         return np.concatenate([ee_pos, obj_pos, goal_pos])
 
+    def high_level_state(self):
+        raw_state = self._get_raw_state()
+        return raw_state
+    
+    def raw_object_goal_distance(self):
+        raw = self._get_raw_state()
+        return float(np.linalg.norm(raw[2:4] - raw[4:6]))
+
+    def is_terminal(self):
+        return self.raw_object_goal_distance() < self._goal_thresh
+
+    def is_truncated(self):
+        return self._t >= self._max_timesteps
+
     def reward(self):
-        state = self.high_level_state()
+        state = self._get_raw_state()
         ee_pos = state[:2]
         obj_pos = state[2:4]
         goal_pos = state[4:6]
@@ -98,14 +115,6 @@ class Hw3Env(environment.BaseEnv, gym.Env):
 
         self._prev_obj_pos = obj_pos.copy()
         return r_ee_to_obj + r_obj_to_goal + r_direction + r_terminal + r_step
-
-    def is_terminal(self):
-        obj_pos = self.data.body("obj1").xpos[:2]
-        goal_pos = self.data.site("goal").xpos[:2]
-        return np.linalg.norm(obj_pos - goal_pos) < self._goal_thresh
-
-    def is_truncated(self):
-        return self._t >= self._max_timesteps
     
     def step(self, action):
         # Clip action to defined space just in case, then scale
@@ -132,43 +141,3 @@ class Hw3Env(environment.BaseEnv, gym.Env):
         # Gymnasium step returns 5 values: obs, reward, terminated, truncated, info
         info = {}
         return state, reward, terminated, truncated, info
-
-if __name__ == "__main__":
-    env = Hw3Env(render_mode="offscreen")
-    
-    agent = Agent(lr=3e-4, gamma=0.99)
-    num_episodes = 5000 
-
-    rews = []
-
-    for i in range(num_episodes):        
-        state, _ = env.reset()
-        done = False
-        cumulative_reward = 0.0
-        episode_steps = 0
-
-        while not done:
-            # Action selection
-            action = agent.decide_action(state)
-            
-            # Step the environment
-            next_state, reward, terminated, truncated, _ = env.step(action)
-            
-            # Track rewards for the trajectory
-            agent.add_reward(reward)
-            cumulative_reward += reward
-            
-            # Check if episode has ended
-            done = terminated or truncated
-            
-            state = next_state
-            episode_steps += 1
-
-        print(f"Episode={i:04d} | Steps={episode_steps:03d} | Reward={cumulative_reward:.3f}")
-        rews.append(cumulative_reward)
-        
-        # Policy gradient update occurs strictly at the END of the episode
-        agent.update_model()
-
-    torch.save(agent.model.state_dict(), "model.pt")
-    np.save("rews.npy", np.array(rews))
