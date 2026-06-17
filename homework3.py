@@ -1,18 +1,27 @@
 import torch
 import torchvision.transforms as transforms
 import numpy as np
+import gymnasium as gym
+from gymnasium import spaces
 
 import environment
 from agent import Agent
 
-
-class Hw3Env(environment.BaseEnv):
+# Inherit from both BaseEnv and gym.Env
+class Hw3Env(environment.BaseEnv, gym.Env):
     def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
+        environment.BaseEnv.__init__(self, **kwargs)
         self._delta = 0.05
-        self._goal_thresh = 0.075  # easier goal detection
-        self._max_timesteps = 300  # allow more steps
-        self._prev_obj_pos = None  # track object movement
+        self._goal_thresh = 0.075 
+        self._max_timesteps = 300 
+        self._prev_obj_pos = None 
+
+        # Gymnasium Space Definitions
+        # Action Space: 2 continuous values (x, y movement) between -1.0 and 1.0
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)a
+        
+        # Observation Space: 6 continuous values (ee_pos, obj_pos, goal_pos)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32)
 
     def _create_scene(self, seed=None):
         if seed is not None:
@@ -32,15 +41,18 @@ class Hw3Env(environment.BaseEnv):
                                   name="goal")
         return scene
     
-    def reset(self):
-        super().reset()
-        self._prev_obj_pos = self.data.body("obj1").xpos[:2].copy()  # initialize previous position
+    def reset(self, seed=None, options=None):
+        # Gym environments expect reset to handle seeds. 
+        # BaseEnv's reset doesn't take a seed naturally, so we wrap it carefully.
+        environment.BaseEnv.reset(self)
+        self._prev_obj_pos = self.data.body("obj1").xpos[:2].copy()
         self._t = 0
 
+        # Gymnasium reset returns (observation, info_dict)
         try:
-            return self.high_level_state()
+            return self.high_level_state(), {}
         except:
-            return None
+            return np.zeros(6, dtype=np.float32), {}
 
     def state(self):
         if self._render_mode == "offscreen":
@@ -60,7 +72,6 @@ class Hw3Env(environment.BaseEnv):
         return np.concatenate([ee_pos, obj_pos, goal_pos])
 
     def reward(self):
-        
         state = self.high_level_state()
         ee_pos = state[:2]
         obj_pos = state[2:4]
@@ -97,52 +108,67 @@ class Hw3Env(environment.BaseEnv):
         return self._t >= self._max_timesteps
     
     def step(self, action):
-        action = action.clamp(-1, 1).cpu().numpy() * self._delta
+        # Clip action to defined space just in case, then scale
+        action = np.clip(action, self.action_space.low, self.action_space.high)
+        scaled_action = action * self._delta
+        
         ee_pos = self.data.site(self._ee_site).xpos[:2]
         target_pos = np.concatenate([ee_pos, [1.06]])
-        target_pos[:2] = np.clip(target_pos[:2] + action, [0.25, -0.3], [0.75, 0.3])
+        target_pos[:2] = np.clip(target_pos[:2] + scaled_action, [0.25, -0.3], [0.75, 0.3])
+        
         result = self._set_ee_in_cartesian(target_pos, rotation=[-90, 0, 180], n_splits=30, threshold=0.04)            
 
         self._t += 1
 
         state = self.high_level_state()
         reward = self.reward()
-        terminal = self.is_terminal()
-        if result:  # If the action is successful
+        terminated = self.is_terminal()
+        
+        if result:  
             truncated = self.is_truncated()
-        else:  # If didn't realize the action
+        else:  
             truncated = True
-        return state, reward, terminal, truncated
-
+            
+        # Gymnasium step returns 5 values: obs, reward, terminated, truncated, info
+        info = {}
+        return state, reward, terminated, truncated, info
 
 if __name__ == "__main__":
     env = Hw3Env(render_mode="offscreen")
-    agent = Agent()
-    num_episodes = 10000
+    
+    agent = Agent(lr=3e-4, gamma=0.99)
+    num_episodes = 5000 
 
     rews = []
 
     for i in range(num_episodes):        
-        env.reset()
-        state = env.high_level_state()
+        state, _ = env.reset()
         done = False
         cumulative_reward = 0.0
         episode_steps = 0
 
         while not done:
+            # Action selection
             action = agent.decide_action(state)
-            next_state, reward, is_terminal, is_truncated = env.step(action[0])
+            
+            # Step the environment
+            next_state, reward, terminated, truncated, _ = env.step(action)
+            
+            # Track rewards for the trajectory
             agent.add_reward(reward)
             cumulative_reward += reward
-            done = is_terminal or is_truncated
+            
+            # Check if episode has ended
+            done = terminated or truncated
             
             state = next_state
             episode_steps += 1
 
-        print(f"Episode={i}, reward={cumulative_reward}")
+        print(f"Episode={i:04d} | Steps={episode_steps:03d} | Reward={cumulative_reward:.3f}")
         rews.append(cumulative_reward)
+        
+        # Policy gradient update occurs strictly at the END of the episode
         agent.update_model()
 
-    ## Save the model and the training statistics
     torch.save(agent.model.state_dict(), "model.pt")
     np.save("rews.npy", np.array(rews))
