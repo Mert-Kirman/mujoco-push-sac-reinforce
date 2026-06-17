@@ -16,7 +16,7 @@ class Agent():
         self.rewards = []
         
     def decide_action(self, state):
-        state = torch.tensor(state).unsqueeze(0)  # Add batch dimension
+        state = torch.tensor(state).to(torch.float32).unsqueeze(0)  # Add batch dimension
 
         # Forward pass through the network
         action_mean, act_std = self.model(state).chunk(2, dim=-1)

@@ -18,7 +18,7 @@ class Hw3Env(environment.BaseEnv, gym.Env):
 
         # Gymnasium Space Definitions
         # Action Space: 2 continuous values (x, y movement) between -1.0 and 1.0
-        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)a
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
         
         # Observation Space: 6 continuous values (ee_pos, obj_pos, goal_pos)
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32)
