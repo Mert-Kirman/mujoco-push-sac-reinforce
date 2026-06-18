@@ -12,8 +12,8 @@ class Policy_Grad_Env(environment.BaseEnv, gym.Env):
     def __init__(self, **kwargs) -> None:
         environment.BaseEnv.__init__(self, **kwargs)
         self._delta = 0.05
-        self._goal_thresh = 0.075 
-        self._max_timesteps = 300 
+        self._goal_thresh = 0.05 
+        self._max_timesteps = 200 
         self._prev_obj_pos = None 
 
         # Gymnasium Space Definitions

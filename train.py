@@ -46,7 +46,7 @@ if __name__ == "__main__":
     
     model_path = os.path.join(run_dir, "model.pt")
 
-    env = Policy_Grad_Env(render_mode="offscreen")
+    env = Policy_Grad_Env(render_mode="blind")
     
     agent = Agent(lr=3e-4, gamma=0.99)
     num_episodes = 5000 
